@@ -7,7 +7,7 @@ description: Transcribe the spoken words in an Instagram Reel link or a saved au
 
 Run the bundled CLI and return its transcript as plain text. Speech recognition runs locally with whisper.cpp. The current Codex or Claude session handles the conversation using its existing login. No separate transcription API key or access to agent credentials is needed.
 
-Resolve all script paths from this skill's directory, wherever the plugin is installed. Node.js 22 or later is required. Run [scripts/cli.mjs](scripts/cli.mjs) with `--doctor` to check local tools and the model. If the downloader or model is missing, run [scripts/setup.mjs](scripts/setup.mjs). Setup installs yt-dlp into an isolated Python environment and downloads the multilingual Whisper base model. If ffmpeg or whisper-cli is missing, show the setup command for the user's platform instead of claiming transcription succeeded.
+Resolve all script paths from this skill's directory, wherever the plugin is installed. Node.js 22 or later is required. Run [scripts/cli.mjs](scripts/cli.mjs) with `--doctor` to check local tools and the model. If this skill's `.venv/bin/yt-dlp` or the model is missing, run [scripts/setup.mjs](scripts/setup.mjs), even if doctor finds a global downloader. Older downloader releases can fail on Instagram. Setup installs a supported yt-dlp release into an isolated Python environment and downloads the multilingual Whisper base model. If ffmpeg or whisper-cli is missing, show the setup command for the user's platform instead of claiming transcription succeeded.
 
 For a Reel link, run:
 
