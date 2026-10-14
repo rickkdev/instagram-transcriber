@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#f7f6f2" />
+    <title>ReelScribe · Reel to text</title>
+    <link rel="icon" href="/mark.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/"
+        ><img src="/mark.svg" alt="" width="32" height="32" />ReelScribe</a
+      ><button class="quiet" id="setup-button">
+        Setup <span aria-hidden="true">↗</span>
+      </button>
+    </header>
+    <main>
+      <section class="intro">
+        <p class="eyebrow"><span></span> LESS REPLAY. MORE CLARITY.</p>
+        <h1>Turn a Reel<br />into <span>words.</span></h1>
+        <p class="subtitle">
+          Paste a link. Get the spoken words as text.<br />Ready to read, copy,
+          or keep.
+        </p>
+      </section>
+      <section class="input-card" aria-label="Transcribe a Reel">
+        <div id="setup-banner" class="notice" hidden>
+          <strong>One setup step left</strong>
+          <p id="setup-summary"></p>
+          <button id="setup-details" class="text-button">
+            Show setup instructions <span aria-hidden="true">↗</span>
+          </button>
+        </div>
+        <form id="reel-form">
+          <label for="reel-url">Instagram Reel link</label>
+          <div class="input-row">
+            <div class="url-wrap">
+              <span aria-hidden="true">↗</span
+              ><input
+                type="url"
+                id="reel-url"
+                placeholder="https://www.instagram.com/reel/..."
+                required
+                autocomplete="off"
+                maxlength="2048"
+                spellcheck="false"
+              />
+            </div>
+            <button class="primary" id="transcribe-button" type="submit">
+              Transcribe <span aria-hidden="true">→</span>
+            </button>
+          </div>
+          <p class="hint">
+            Public Reels work best. The original language is preserved.
+          </p>
+        </form>
+        <div class="upload-row">
+          <span>Have the video saved?</span
+          ><button class="text-button" id="upload-button">
+            Upload a video instead <span aria-hidden="true">↑</span></button
+          ><input type="file" id="video-file" accept="video/*,audio/*" hidden />
+        </div>
+        <p
+          id="feedback"
+          class="feedback"
+          role="status"
+          aria-live="polite"
+          hidden
+        ></p>
+      </section>
+      <section class="transcript-section" aria-labelledby="transcript-heading">
+        <div class="output-heading">
+          <div>
+            <h2 id="transcript-heading">Your transcript</h2>
+            <p id="source-label">A little space for the words that matter.</p>
+          </div>
+          <div class="actions" id="actions" hidden>
+            <button class="small-button" id="copy-button">Copy text</button
+            ><button class="small-button" id="download-button">
+              Download .txt
+            </button>
+          </div>
+        </div>
+        <div class="paper" id="output" aria-live="polite" aria-busy="false">
+          <div id="empty-state">
+            <div class="document-icon" aria-hidden="true">
+              <span></span><span></span><span></span>
+            </div>
+            <h3>From spoken to written.</h3>
+            <p>
+              Your transcript appears here.<br />Start with a Reel link or a
+              saved video.
+            </p>
+          </div>
+          <p id="transcript-text" hidden></p>
+          <div id="working-state" hidden>
+            <span class="spinner" aria-hidden="true"></span>
+            <h3>Finding the words…</h3>
+            <p>
+              Getting the audio and transcribing it.<br />You can leave this tab
+              open while we work.
+            </p>
+          </div>
+        </div>
+      </section>
+      <details class="how">
+        <summary>How it works <span aria-hidden="true">+</span></summary>
+        <ol>
+          <li>
+            Paste a public Instagram Reel link or upload a saved video under 50
+            MB and 10 minutes.
+          </li>
+          <li>
+            The local server extracts audio and sends it to OpenAI for
+            transcription.
+          </li>
+          <li>
+            Copy or download the text. Temporary media is deleted after
+            processing.
+          </li>
+        </ol>
+      </details>
+    </main>
+    <footer>
+      <span>Made for the words worth keeping.</span
+      ><span>Local app · Powered by OpenAI</span>
+    </footer>
+    <dialog id="setup-dialog">
+      <div class="dialog-heading">
+        <h2>Set up ReelScribe</h2>
+        <button id="close-setup" class="quiet" aria-label="Close setup">
+          ✕
+        </button>
+      </div>
+      <p>Your OpenAI API key stays on the local server.</p>
+      <ol>
+        <li>Install Node.js 22 or later, Python 3, and <code>ffmpeg</code>.</li>
+        <li>
+          In the project folder, run <code>npm install</code>,
+          <code>npm run setup:downloader</code>, and
+          <code>cp .env.example .env</code>.
+        </li>
+        <li>
+          Open <code>.env</code> and set <code>OPENAI_API_KEY</code> to your
+          OpenAI API key.
+        </li>
+        <li>
+          Run <code>npm start</code>. Restart the server after changing
+          configuration.
+        </li>
+      </ol>
+      <p class="dialog-note">
+        OpenAI API usage is billed to your API account. Instagram may block
+        access to some Reels. You can upload a saved video instead.
+      </p>
+      <button id="done-setup" class="primary">Got it</button>
+    </dialog>
+  </body>
+</html>
