@@ -83,7 +83,7 @@ export function createApp({
   const publicPath = join(dirname(fileURLToPath(import.meta.url)), "public");
   for (const file of ["index.html", "app.js", "styles.css", "mark.svg"])
     app.get(file === "index.html" ? "/" : `/${file}`, (req, res) =>
-      res.sendFile(join(publicPath, file)),
+      res.sendFile(file, { root: publicPath }),
     );
   app.get("/api/status", (req, res) =>
     res.json({

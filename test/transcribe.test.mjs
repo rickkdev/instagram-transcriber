@@ -121,6 +121,18 @@ async function withServer(options, callback) {
   }
 }
 
+test("the local page and assets load from a project inside a hidden directory", async () => {
+  await withServer({ apiKey: "", prerequisites: [] }, async (base) => {
+    const page = await fetch(base);
+    assert.equal(page.status, 200);
+    assert.match(await page.text(), /<title>ReelScribe/);
+    for (const asset of ["app.js", "styles.css", "mark.svg"]) {
+      assert.equal((await fetch(`${base}/${asset}`)).status, 200);
+    }
+    assert.equal((await fetch(`${base}/.env`)).status, 404);
+  });
+});
+
 test("missing key returns honest setup and actionable 503", async () => {
   await withServer({ apiKey: "", prerequisites: [] }, async (base) => {
     assert.deepEqual(await (await fetch(`${base}/api/status`)).json(), {
