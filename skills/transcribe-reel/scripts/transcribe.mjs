@@ -1,15 +1,22 @@
 import { spawn } from "node:child_process";
 import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+const scriptDirectory = dirname(fileURLToPath(import.meta.url));
+export const defaultModelPath =
+  process.env.WHISPER_MODEL_PATH ||
+  join(homedir(), ".cache/reelscribe/models/ggml-base.bin");
+export const whisperPath = process.env.WHISPER_PATH || "whisper-cli";
 export const downloaderPath =
   process.env.YT_DLP_PATH ||
-  (existsSync(join(dirname(fileURLToPath(import.meta.url)), ".venv/bin/yt-dlp"))
-    ? join(dirname(fileURLToPath(import.meta.url)), ".venv/bin/yt-dlp")
-    : "yt-dlp");
+  [
+    join(scriptDirectory, "../.venv/bin/yt-dlp"),
+    join(scriptDirectory, "../../../.venv/bin/yt-dlp"),
+  ].find((path) => existsSync(path)) ||
+  "yt-dlp";
 
 export class AppError extends Error {
   constructor(code, message, status = 422) {
@@ -85,7 +92,7 @@ function run(command, args, signal, timeout = 120_000) {
     child.once("error", () => {
       failure = new AppError(
         "dependency_missing",
-        `Install the required media tools on the server, then restart the app.`,
+        `Install ffmpeg, yt-dlp, and whisper-cli, then run setup again.`,
         503,
       );
     });
@@ -108,12 +115,18 @@ function run(command, args, signal, timeout = 120_000) {
 
 export async function transcribe(
   source,
-  { apiKey, cookiesFile, signal, fetchImpl = fetch, tempRoot = tmpdir() },
+  {
+    modelPath = defaultModelPath,
+    whisperBinary = whisperPath,
+    cookiesFile = process.env.IG_COOKIES_FILE,
+    signal,
+    tempRoot = tmpdir(),
+  } = {},
 ) {
-  if (!apiKey)
+  if (!existsSync(modelPath))
     throw new AppError(
       "setup_required",
-      "Add OPENAI_API_KEY to your .env file and restart the app.",
+      "Run npm run setup to install the local Whisper model, or set WHISPER_MODEL_PATH.",
       503,
     );
   const sourceUrl =
@@ -167,7 +180,7 @@ export async function transcribe(
     }
     if ((await stat(media)).size > 50 * 1024 * 1024)
       throw new AppError("too_large", "Choose a video smaller than 50 MB.");
-    const audio = join(directory, "audio.m4a");
+    const audio = join(directory, "audio.wav");
     try {
       await run(
         "ffmpeg",
@@ -189,9 +202,7 @@ export async function transcribe(
           "-ar",
           "16000",
           "-c:a",
-          "aac",
-          "-b:a",
-          "48k",
+          "pcm_s16le",
           "-y",
           audio,
         ],
@@ -205,8 +216,8 @@ export async function transcribe(
         );
       throw error;
     }
-    const bytes = await readFile(audio);
-    if (bytes.length < 500 || bytes.length > 20 * 1024 * 1024)
+    const audioSize = (await stat(audio)).size;
+    if (audioSize < 500 || audioSize > 20 * 1024 * 1024)
       throw new AppError(
         "invalid_audio",
         "The video has no usable audio or is too large to transcribe.",
@@ -214,57 +225,46 @@ export async function transcribe(
     const duration = await audioDuration(audio, signal);
     if (duration > 600)
       throw new AppError("too_long", "Choose a video shorter than 10 minutes.");
-    const body = new FormData();
-    body.set("model", "gpt-4o-mini-transcribe");
-    body.set("response_format", "json");
-    body.set("file", new Blob([bytes], { type: "audio/mp4" }), "audio.m4a");
-    let response;
+    const output = join(directory, "transcript");
     try {
-      response = await fetchImpl(
-        "https://api.openai.com/v1/audio/transcriptions",
-        {
-          method: "POST",
-          headers: { Authorization: `Bearer ${apiKey}` },
-          body,
-          signal,
-        },
+      await run(
+        whisperBinary,
+        [
+          "-m",
+          modelPath,
+          "-f",
+          audio,
+          "-l",
+          "auto",
+          "-otxt",
+          "-of",
+          output,
+          "-np",
+        ],
+        signal,
+        600_000,
       );
     } catch (error) {
-      if (signal?.aborted)
+      if (error.code === "media_failed")
         throw new AppError(
-          "timeout",
-          "Transcription was interrupted or took too long. Try again.",
-          504,
+          "transcription_failed",
+          "Local Whisper could not transcribe the audio. Check the model with --doctor and try again.",
         );
-      throw new AppError(
-        "provider_unavailable",
-        "Could not reach OpenAI. Check your connection and try again.",
-        502,
-      );
+      throw error;
     }
-    if (!response.ok) {
-      const message =
-        response.status === 401
-          ? "OpenAI rejected the API key. Check OPENAI_API_KEY and restart the app."
-          : response.status === 429
-            ? "OpenAI reached a rate or billing limit. Check your API billing and try again."
-            : "OpenAI could not transcribe this audio. Try again.";
-      throw new AppError("provider_failed", message, 502);
-    }
-    let result;
+    let text;
     try {
-      result = await response.json();
+      text = (await readFile(`${output}.txt`, "utf8")).trim();
     } catch {
       throw new AppError(
-        "provider_failed",
-        "OpenAI returned an unreadable response. Try again.",
-        502,
+        "transcription_failed",
+        "Local Whisper did not produce a transcript. Check the model with --doctor.",
       );
     }
-    if (typeof result.text !== "string" || !result.text.trim())
+    if (!text)
       throw new AppError("no_speech", "No speech was detected in this video.");
     return {
-      text: result.text.trim(),
+      text,
       source: sourceUrl
         ? { kind: "reel", url: sourceUrl }
         : { kind: "upload", filename: source.filename },

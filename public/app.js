@@ -116,8 +116,8 @@ async function loadStatus() {
     if (!response.ok) throw new Error();
     configuration = await response.json();
     $("setup-banner").hidden = configuration.ready;
-    $("setup-summary").textContent = configuration.missingKey
-      ? "Add your OpenAI API key on the local server to start transcribing."
+    $("setup-summary").textContent = configuration.missingModel
+      ? "Run npm run setup to install the local Whisper model and start transcribing."
       : `Install ${configuration.missingTools.join(", ")} on the local server to start transcribing.`;
   } catch {
     state = {

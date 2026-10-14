@@ -1,10 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import {
+  mkdtemp,
+  readdir,
+  rm,
+  writeFile,
+  cp,
+  readFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
-import { normalizeReelUrl, transcribe } from "../transcribe.mjs";
+import {
+  normalizeReelUrl,
+  transcribe,
+} from "../skills/transcribe-reel/scripts/transcribe.mjs";
 import { createApp } from "../server.mjs";
 
 test("canonical Reel links strip tracking and reject other destinations", () => {
@@ -26,9 +36,28 @@ test("canonical Reel links strip tracking and reject other destinations", () => 
     assert.throws(() => normalizeReelUrl(value), { code: "invalid_url" });
 });
 
-test("real audio conversion sends documented multipart and removes temp files", async () => {
+test("real audio conversion runs local Whisper and cleans success, failure, and cancellation", async () => {
   const root = await mkdtemp(join(tmpdir(), "reelscribe-test-"));
   const media = join(root, "fixture.wav");
+  const modelPath = join(root, "model.bin");
+  const whisperBinary = join(root, "whisper-fixture");
+  await writeFile(modelPath, "fixture model");
+  await writeFile(
+    whisperBinary,
+    `#!/usr/bin/env node
+import { readFileSync, writeFileSync } from 'node:fs';
+import assert from 'node:assert/strict';
+const args = process.argv.slice(2);
+const audio = readFileSync(args[args.indexOf('-f') + 1]);
+assert.equal(audio.toString('ascii', 0, 4), 'RIFF');
+assert.equal(audio.readUInt16LE(22), 1);
+assert.equal(audio.readUInt32LE(24), 16000);
+assert.equal(audio.readUInt16LE(34), 16);
+assert.equal(args[args.indexOf('-l') + 1], 'auto');
+writeFileSync(args[args.indexOf('-of') + 1] + '.txt', ' Fixture transcript.\\n');
+`,
+    { mode: 0o700 },
+  );
   assert.equal(
     spawnSync("ffmpeg", [
       "-nostdin",
@@ -42,70 +71,43 @@ test("real audio conversion sends documented multipart and removes temp files", 
     ]).status,
     0,
   );
+  const source = { kind: "upload", path: media, filename: "fixture.wav" };
+  const options = { modelPath, whisperBinary, tempRoot: root };
+  const expectedFiles = ["fixture.wav", "model.bin", "whisper-fixture"];
   try {
-    const source = { kind: "upload", path: media, filename: "fixture.wav" };
-    const result = await transcribe(source, {
-      apiKey: "test-key",
-      tempRoot: root,
-      fetchImpl: async (url, options) => {
-        assert.equal(url, "https://api.openai.com/v1/audio/transcriptions");
-        assert.equal(options.headers.Authorization, "Bearer test-key");
-        assert.equal(options.body.get("model"), "gpt-4o-mini-transcribe");
-        assert.equal(options.body.get("response_format"), "json");
-        assert.ok(options.body.get("file").size > 500);
-        return Response.json({ text: "Fixture transcript." });
-      },
-    });
-    assert.deepEqual(result, {
+    assert.deepEqual(await transcribe(source, options), {
       text: "Fixture transcript.",
       source: { kind: "upload", filename: "fixture.wav" },
     });
-    assert.deepEqual(await readdir(root), ["fixture.wav"]);
-    await assert.rejects(
-      transcribe(source, {
-        apiKey: "test-key",
-        tempRoot: root,
-        fetchImpl: async () => Response.json({}, { status: 401 }),
-      }),
-      { code: "provider_failed" },
-    );
-    assert.deepEqual(await readdir(root), ["fixture.wav"]);
-    await assert.rejects(
-      transcribe(source, {
-        apiKey: "test-key",
-        tempRoot: root,
-        fetchImpl: async () => Response.json({ text: " " }),
-      }),
-      { code: "no_speech" },
-    );
-    assert.deepEqual(await readdir(root), ["fixture.wav"]);
-    const runningController = new AbortController();
-    const running = transcribe(source, {
-      apiKey: "test-key",
-      tempRoot: root,
-      signal: runningController.signal,
-      fetchImpl: async () => {
-        throw new Error("unexpected provider call");
-      },
+    assert.deepEqual((await readdir(root)).sort(), expectedFiles);
+    await writeFile(whisperBinary, "#!/bin/sh\nexit 1\n", { mode: 0o700 });
+    await assert.rejects(transcribe(source, options), {
+      code: "transcription_failed",
     });
-    const timer = setTimeout(() => runningController.abort(), 5);
+    assert.deepEqual((await readdir(root)).sort(), expectedFiles);
+    await writeFile(
+      whisperBinary,
+      '#!/bin/sh\nwhile [ "$1" != "-of" ]; do shift; done\nshift\nprintf " " > "$1.txt"\n',
+      { mode: 0o700 },
+    );
+    await assert.rejects(transcribe(source, options), { code: "no_speech" });
+    assert.deepEqual((await readdir(root)).sort(), expectedFiles);
+    const controller = new AbortController();
+    const pending = transcribe(source, {
+      ...options,
+      signal: controller.signal,
+    });
+    const timer = setTimeout(() => controller.abort(), 5);
     await assert.rejects(
-      running,
+      pending,
       (error) => error.code === "cancelled" || error.name === "AbortError",
     );
     clearTimeout(timer);
-    assert.deepEqual(await readdir(root), ["fixture.wav"]);
-    const controller = new AbortController();
-    controller.abort();
+    assert.deepEqual((await readdir(root)).sort(), expectedFiles);
     await assert.rejects(
-      transcribe(source, {
-        apiKey: "test-key",
-        tempRoot: root,
-        signal: controller.signal,
-      }),
-      { name: "AbortError" },
+      transcribe(source, { ...options, modelPath: join(root, "missing") }),
+      { code: "setup_required" },
     );
-    assert.deepEqual(await readdir(root), ["fixture.wav"]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -122,39 +124,45 @@ async function withServer(options, callback) {
 }
 
 test("the local page and assets load from a project inside a hidden directory", async () => {
-  await withServer({ apiKey: "", prerequisites: [] }, async (base) => {
-    const page = await fetch(base);
-    assert.equal(page.status, 200);
-    assert.match(await page.text(), /<title>ReelScribe/);
-    for (const asset of ["app.js", "styles.css", "mark.svg"]) {
-      assert.equal((await fetch(`${base}/${asset}`)).status, 200);
-    }
-    assert.equal((await fetch(`${base}/.env`)).status, 404);
-  });
+  await withServer(
+    { modelAvailable: false, prerequisites: [] },
+    async (base) => {
+      const page = await fetch(base);
+      assert.equal(page.status, 200);
+      assert.match(await page.text(), /<title>ReelScribe/);
+      for (const asset of ["app.js", "styles.css", "mark.svg"]) {
+        assert.equal((await fetch(`${base}/${asset}`)).status, 200);
+      }
+      assert.equal((await fetch(`${base}/.env`)).status, 404);
+    },
+  );
 });
 
-test("missing key returns honest setup and actionable 503", async () => {
-  await withServer({ apiKey: "", prerequisites: [] }, async (base) => {
-    assert.deepEqual(await (await fetch(`${base}/api/status`)).json(), {
-      ready: false,
-      missingKey: true,
-      missingTools: [],
-    });
-    const response = await fetch(`${base}/api/transcribe`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: "https://instagram.com/reel/ABC/" }),
-    });
-    assert.equal(response.status, 503);
-    assert.equal((await response.json()).error.code, "setup_required");
-  });
+test("missing local model returns honest setup and actionable 503", async () => {
+  await withServer(
+    { modelAvailable: false, prerequisites: [] },
+    async (base) => {
+      assert.deepEqual(await (await fetch(`${base}/api/status`)).json(), {
+        ready: false,
+        missingModel: true,
+        missingTools: [],
+      });
+      const response = await fetch(`${base}/api/transcribe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: "https://instagram.com/reel/ABC/" }),
+      });
+      assert.equal(response.status, 503);
+      assert.equal((await response.json()).error.code, "setup_required");
+    },
+  );
 });
 
 test("API validates origins, body and sources, and shares upload pipeline", async () => {
   const seen = [];
   await withServer(
     {
-      apiKey: "test",
+      modelAvailable: true,
       prerequisites: [],
       transcribeImpl: async (source) => {
         seen.push(source);
@@ -217,7 +225,7 @@ test("one request owns the server slot and a disconnect aborts its signal", asyn
   });
   await withServer(
     {
-      apiKey: "test",
+      modelAvailable: true,
       prerequisites: [],
       transcribeImpl: async (source, { signal }) => {
         started();
@@ -253,7 +261,7 @@ test("a partial upload disconnect releases the request slot", async () => {
   const { request } = await import("node:http");
   await withServer(
     {
-      apiKey: "test",
+      modelAvailable: true,
       prerequisites: [],
       transcribeImpl: async () => ({
         text: "Fixture transcript.",
@@ -290,4 +298,73 @@ test("a partial upload disconnect releases the request slot", async () => {
       );
     },
   );
+});
+
+test("standalone copied skill CLI emits JSON and refuses output overwrite", async () => {
+  const root = await mkdtemp(join(tmpdir(), "reelscribe-cli-"));
+  try {
+    await cp(resolve("skills/transcribe-reel/scripts"), join(root, "scripts"), {
+      recursive: true,
+    });
+    const media = join(root, "fixture.wav");
+    const model = join(root, "model.bin");
+    const whisper = join(root, "whisper-fixture");
+    const output = join(root, "transcript.txt");
+    await writeFile(model, "fixture model");
+    await writeFile(
+      whisper,
+      '#!/bin/sh\nwhile [ "$1" != "-of" ]; do shift; done\nshift\nprintf "Standalone transcript." > "$1.txt"\n',
+      { mode: 0o700 },
+    );
+    assert.equal(
+      spawnSync("ffmpeg", [
+        "-nostdin",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=440:duration=1",
+        media,
+      ]).status,
+      0,
+    );
+    const cli = join(root, "scripts/cli.mjs");
+    const args = [
+      cli,
+      "--file",
+      media,
+      "--model",
+      model,
+      "--json",
+      "--output",
+      output,
+    ];
+    const options = {
+      cwd: tmpdir(),
+      encoding: "utf8",
+      env: { ...process.env, WHISPER_PATH: whisper },
+    };
+    const result = spawnSync(process.execPath, args, options);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), {
+      text: "Standalone transcript.",
+      source: { kind: "upload", filename: "fixture.wav" },
+    });
+    assert.equal(await readFile(output, "utf8"), "Standalone transcript.\n");
+    const again = spawnSync(process.execPath, args, options);
+    assert.equal(again.status, 1);
+    assert.equal(again.stdout, "");
+    assert.match(again.stderr, /already exists/);
+    const invalid = spawnSync(
+      process.execPath,
+      [cli, "--url", "https://evil.example/reel/x", "--model", model],
+      options,
+    );
+    assert.equal(invalid.status, 1);
+    assert.equal(invalid.stdout, "");
+    assert.match(invalid.stderr, /Instagram Reel link/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

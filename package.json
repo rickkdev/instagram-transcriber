@@ -9,7 +9,8 @@
     "dev": "node --env-file-if-exists=.env --watch server.mjs",
     "start": "node --env-file-if-exists=.env server.mjs",
     "test": "node --test",
-    "setup:downloader": "node scripts/setup-downloader.mjs"
+    "setup": "node skills/transcribe-reel/scripts/setup.mjs",
+    "transcribe": "node skills/transcribe-reel/scripts/cli.mjs"
   },
   "dependencies": {
     "express": "^5.1.0",

@@ -114,8 +114,8 @@
             MB and 10 minutes.
           </li>
           <li>
-            The local server extracts audio and sends it to OpenAI for
-            transcription.
+            The local server extracts audio and transcribes it locally with
+            Whisper.
           </li>
           <li>
             Copy or download the text. Temporary media is deleted after
@@ -126,7 +126,7 @@
     </main>
     <footer>
       <span>Made for the words worth keeping.</span
-      ><span>Local app · Powered by OpenAI</span>
+      ><span>Local app · Local Whisper</span>
     </footer>
     <dialog id="setup-dialog">
       <div class="dialog-heading">
@@ -135,17 +135,15 @@
           ✕
         </button>
       </div>
-      <p>Your OpenAI API key stays on the local server.</p>
+      <p>Audio is transcribed on your computer. No API key is needed.</p>
       <ol>
-        <li>Install Node.js 22 or later, Python 3, and <code>ffmpeg</code>.</li>
         <li>
-          In the project folder, run <code>npm install</code>,
-          <code>npm run setup:downloader</code>, and
-          <code>cp .env.example .env</code>.
+          Install Node.js 22 or later, Python 3, <code>ffmpeg</code>, and
+          <code>whisper-cli</code> (whisper.cpp).
         </li>
         <li>
-          Open <code>.env</code> and set <code>OPENAI_API_KEY</code> to your
-          OpenAI API key.
+          In the project folder, run <code>npm install</code> and
+          <code>npm run setup</code>.
         </li>
         <li>
           Run <code>npm start</code>. Restart the server after changing
@@ -153,7 +151,7 @@
         </li>
       </ol>
       <p class="dialog-note">
-        OpenAI API usage is billed to your API account. Instagram may block
+        Setup downloads a multilingual Whisper model once. Instagram may block
         access to some Reels. You can upload a saved video instead.
       </p>
       <button id="done-setup" class="primary">Got it</button>

@@ -1,5 +1,6 @@
 import express from "express";
 import multer from "multer";
+import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -10,7 +11,9 @@ import {
   normalizeReelUrl,
   transcribe,
   downloaderPath,
-} from "./transcribe.mjs";
+  defaultModelPath,
+  whisperPath,
+} from "./skills/transcribe-reel/scripts/transcribe.mjs";
 
 function parseRequest(parser, req, res, signal) {
   return new Promise((resolve, reject) => {
@@ -27,23 +30,24 @@ function parseRequest(parser, req, res, signal) {
 }
 
 export function createApp({
-  apiKey = process.env.OPENAI_API_KEY,
+  modelPath = defaultModelPath,
+  modelAvailable = existsSync(modelPath),
   cookiesFile = process.env.IG_COOKIES_FILE,
   transcribeImpl = transcribe,
-  prerequisites = ["ffmpeg", "ffprobe", downloaderPath]
-    .filter(
-      (command) =>
-        spawnSync(
-          command,
-          [
-            command === "ffmpeg" || command === "ffprobe"
-              ? "-version"
-              : "--version",
-          ],
-          { stdio: "ignore" },
-        ).error,
-    )
-    .map((command) => (command === downloaderPath ? "yt-dlp" : command)),
+  prerequisites = [
+    ["ffmpeg", "ffmpeg", "-version"],
+    ["ffprobe", "ffprobe", "-version"],
+    ["yt-dlp", downloaderPath, "--version"],
+    ["whisper-cli", whisperPath, "--help"],
+  ]
+    .filter(([, command, arg]) => {
+      const result = spawnSync(command, [arg], {
+        stdio: "ignore",
+        timeout: 10_000,
+      });
+      return result.error || result.status !== 0;
+    })
+    .map(([name]) => name),
 } = {}) {
   const app = express();
   let active = false;
@@ -51,27 +55,23 @@ export function createApp({
   app.use((req, res, next) => {
     const host = req.headers.host;
     if (!host || !/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host))
-      return res
-        .status(403)
-        .json({
-          error: {
-            code: "origin_rejected",
-            message: "Open this app through its local address.",
-          },
-        });
+      return res.status(403).json({
+        error: {
+          code: "origin_rejected",
+          message: "Open this app through its local address.",
+        },
+      });
     if (
       req.method === "POST" &&
       ((req.headers.origin && req.headers.origin !== `http://${host}`) ||
         req.headers["sec-fetch-site"] === "cross-site")
     )
-      return res
-        .status(403)
-        .json({
-          error: {
-            code: "origin_rejected",
-            message: "Submit from this app’s local page.",
-          },
-        });
+      return res.status(403).json({
+        error: {
+          code: "origin_rejected",
+          message: "Submit from this app’s local page.",
+        },
+      });
     res.set("Cache-Control", "no-store");
     res.set("X-Content-Type-Options", "nosniff");
     res.set(
@@ -87,8 +87,8 @@ export function createApp({
     );
   app.get("/api/status", (req, res) =>
     res.json({
-      ready: Boolean(apiKey) && prerequisites.length === 0,
-      missingKey: !apiKey,
+      ready: modelAvailable && prerequisites.length === 0,
+      missingModel: !modelAvailable,
       missingTools: prerequisites,
     }),
   );
@@ -110,10 +110,10 @@ export function createApp({
       };
       let deadline;
       try {
-        if (!apiKey)
+        if (!modelAvailable)
           throw new AppError(
             "setup_required",
-            "Add OPENAI_API_KEY to your .env file and restart the app.",
+            "Run npm run setup to install the local Whisper model, then restart the app.",
             503,
           );
         if (prerequisites.length)
@@ -133,7 +133,7 @@ export function createApp({
         deadline = setTimeout(() => {
           controller.abort();
           if (!req.complete) req.destroy();
-        }, 240_000);
+        }, 900_000);
         res.on("close", disconnect);
         req.on("aborted", disconnect);
         let source;
@@ -174,7 +174,7 @@ export function createApp({
           source = { kind: "reel", url: normalizeReelUrl(req.body?.url) };
         }
         const result = await transcribeImpl(source, {
-          apiKey,
+          modelPath,
           cookiesFile,
           signal: controller.signal,
         });
@@ -214,17 +214,15 @@ export function createApp({
         "The request was not valid JSON.",
         400,
       );
-    res
-      .status(failure instanceof AppError ? failure.status : 500)
-      .json({
-        error: {
-          code: failure instanceof AppError ? failure.code : "internal_error",
-          message:
-            failure instanceof AppError
-              ? failure.message
-              : "Something went wrong. Try again.",
-        },
-      });
+    res.status(failure instanceof AppError ? failure.status : 500).json({
+      error: {
+        code: failure instanceof AppError ? failure.code : "internal_error",
+        message:
+          failure instanceof AppError
+            ? failure.message
+            : "Something went wrong. Try again.",
+      },
+    });
   });
   return app;
 }

@@ -3,3 +3,7 @@ node_modules/
 .audit/
 
 .venv/
+*.bin
+*.part
+*cookies*.txt
+__pycache__/
