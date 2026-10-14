@@ -1,0 +1,13 @@
+{
+  "name": "reelscribe",
+  "owner": { "name": "Rick", "url": "https://github.com/rickkdev" },
+  "metadata": { "description": "ReelScribe, a local transcription plugin for Instagram Reels and saved videos." },
+  "plugins": [
+    {
+      "name": "reelscribe",
+      "source": "./",
+      "description": "Local Instagram Reel transcription for Claude Code.",
+      "version": "0.2.0"
+    }
+  ]
+}

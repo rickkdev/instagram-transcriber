@@ -1,0 +1,19 @@
+{
+  "name": "reelscribe",
+  "version": "0.2.0",
+  "description": "Transcribe Instagram Reels and saved videos locally, inside your Codex session. No transcription API key.",
+  "author": { "name": "Rick", "url": "https://github.com/rickkdev" },
+  "homepage": "https://github.com/rickkdev/instagram-transcriber",
+  "repository": "https://github.com/rickkdev/instagram-transcriber",
+  "license": "MIT",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "ReelScribe",
+    "shortDescription": "Turn Instagram Reels into text with local Whisper",
+    "developerName": "Rick",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "defaultPrompt": ["Transcribe this Instagram Reel with ReelScribe."],
+    "websiteURL": "https://github.com/rickkdev/instagram-transcriber"
+  }
+}

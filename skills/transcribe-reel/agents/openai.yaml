@@ -1,0 +1,4 @@
+interface:
+  display_name: "ReelScribe"
+  short_description: "Transcribe Instagram Reels locally without an API key"
+  default_prompt: "Use $transcribe-reel to transcribe this Instagram Reel into plain text."
