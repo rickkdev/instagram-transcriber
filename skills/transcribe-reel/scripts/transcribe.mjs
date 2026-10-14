@@ -240,6 +240,7 @@ export async function transcribe(
           "-of",
           output,
           "-np",
+          "-ng",
         ],
         signal,
         600_000,

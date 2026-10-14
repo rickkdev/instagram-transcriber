@@ -4,6 +4,8 @@ Transcribe an Instagram Reel or a saved video inside Codex, Claude Code, or T3 C
 
 Your existing Codex or Claude login runs the agent conversation. The plugin downloads Reel audio with yt-dlp and transcribes it on your machine. It does not read or reuse agent authentication tokens. Subscription login is not a general audio API credential. See the [Codex authentication documentation](https://learn.chatgpt.com/docs/auth).
 
+Whisper uses CPU mode so it can run inside agent sandboxes that restrict GPU access.
+
 ## Install the plugin
 
 Requires Node.js 22 or later, Python 3, ffmpeg, and whisper-cli. On macOS:
